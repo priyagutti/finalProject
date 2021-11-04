@@ -1,0 +1,24 @@
+---
+title: "proposal"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Individuals: Priya Gutti
+##Data Source: https://www.atlantapd.org/home/showpublisheddocument/4438/637710121248630000
+
+I will be analyzing the Atlanta Crime Data. The Atlanta Police Department updates the crime reports weekly since 2011.There are 23 different variables and we will be analyzing the data in 2020.
+
+##Data Overview and Wrangling
+First, we will do some wrangling to remove all of the unnecessary data, delete the 'NAs' and convert the data to the right type. By deleting all of the data that will not be needed, it will be easier to analyze the data. 
+
+##Analysis
+Graph the data according to the number of crimes. We will also look at the crime time distribution to see at what time of the day the crime rate peeks at. We will also look at the density of crime with a map using the map of Atlanta. Using the map, we can interpret which locations have the highest crime. 
+
+##Compare the rseults from graph 
+The top 5 most common places for crimes to happen and what type of crimes are the most common. Analyze the data deeper to see when specific crimes(such as larceny theft) peek on what day and time. 
+
+
