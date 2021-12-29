@@ -1,0 +1,118 @@
+---
+title: "Crime In Atlanta"
+output: html_document
+---
+```{r}
+library(dplyr)
+library(data.table)
+library(ggplot2)
+library(openxlsx)
+library(lubridate)
+library(readxl)
+library(tidyr)
+library(chron)
+library(xts)
+library(highcharter)
+library(ggmap)
+register_google(key = "AIzaSyCehKxl2W5XhGN6oSG2pwsMvw2TJCADtDs")
+```
+
+Background: 
+I found this dataset on the official Atlanta Police Department's Website where they have raw crime datasets for every year since 2011. I picked the dataset of the year 2020 because 2021 was last updated in November and the most recent dataset is 2020. 
+Questions that I want to be answered are: 
+How are the crimes in Atlanta in the last 3 months of 2020?
+How is the crime distribution of the top Crime Neighborhoods for the days of the week? 
+At what times does the top crimes peak and is at it's lowest in a 24 hour scale? 
+How is the Crime distribution on a map of Atlanta?
+```{r}
+data <- read.csv("COBRA2020.csv")
+str(data)
+View(data)
+df = subset(data, select = -c(location,apt_office_num, apt_office_prefix,location, MinOfucr,dispo_code,Shift,loc_type,npu))
+df$occur_date <- mdy(df$occur_date)
+class(df$occur_date)
+df$rpt_date <- mdy(df$rpt_date)
+df$occur_time <- chron(times=df$occur_time) ## This is used to chronologically order the time column
+class(df$occur_time)
+df$lon <- as.numeric(df$lon)
+df$lat <- as.numeric(df$lat)
+View(df)
+```
+Hardest part about this was converting the data since read_excel changed the data to a different format. 
+I finally figured it out by using read_csv instead of read_excel and it didn't change the date and time to decimals format. Removed the columns that weren't necessary and had a majority of NAs. Then I changed the columns from character format to date and time. The latitude and longitude columns were also changed into numeric. 
+```{r}
+Datedf <- na.omit(df) %>% group_by(occur_date) %>% summarise(Total = n())
+tseries <- xts(Datedf$Total, order.by= Datedf$occur_date)
+hchart(tseries, name = "Crimes") %>% 
+  hc_add_theme(hc_theme_darkunica()) %>%
+  hc_credits(enabled = TRUE, text = "Sources: Atlanta Police Department", style = list(fontSize = "12px")) %>%
+  hc_title(text = "Time Series of Atlanta Crimes") %>%
+  hc_legend(enabled = TRUE)
+```
+Grouped the data by the occurrence date and made a time series summarizing the data. The least amount of crimes happened on the major holidays: Christmas, and New Years Eve. In the last 3 months of 2020, the highest count of crimes happened on December 22nd, three days before Christmas.
+
+```{r}
+df$dayofWeek <- weekdays(as.Date(df$occur_date))
+df$hour <- sub(":.*", "", df$occur_time)
+df$hour <- as.numeric(df$hour)
+neighbor <- df %>% filter(!is.na(neighborhood)) %>%  group_by(neighborhood) %>% summarise(total=n()) %>% arrange(desc(total))
+```
+Downtown has the most crimes with a total of 768. The least amount of crimes happen in blandtown with a total of 76. 
+
+
+```{r}
+crimeType <- df %>% group_by(`UC2_Literal`) %>% summarise(total=n()) %>% arrange(desc(total))
+```
+Larcency is the top crime in Atlanta followed by Auto theft.
+
+###What date and time are the most dangerous?
+```{r}
+topCrimes <- subset(df, `UC2_Literal`=='LARCENY-FROM VEHICLE'|`UC2_Literal`=="LARCENY-NON VEHICLE"|`UC2_Literal`=="AUTO THEFT"|`UC2_Literal`=="BURGLARY-RESIDENCE")
+
+topCrimes$dayofWeek <- ordered(topCrimes$dayofWeek, 
+                                   levels = c('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'))
+topCrimes <- within(topCrimes,  `UC2_Literal`<- factor(`UC2_Literal`, levels = names(sort(table(`UC2_Literal`), decreasing = T))))
+
+topPlaces <- subset(df, neighborhood =="Downtown"|neighborhood =="Midtown" | neighborhood=="Old Fourth Ward" | neighborhood=="West End" | neighborhood=="Vine City" | neighborhood=="North Buckhead")
+topPlaces <- within(topPlaces,  neighborhood <- factor(neighborhood, levels = names(sort(table(neighborhood), decreasing = T))))
+topPlaces$dayofWeek <- ordered(topPlaces$dayofWeek, levels = c('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'))
+ggplot(data = topPlaces, aes(x = dayofWeek, fill = neighborhood)) + 
+  geom_bar(width = 0.9, position = position_dodge()) + ggtitle(" Top Crime Neighborhood by Day of Week") + 
+  labs(x = "Day of Week", y = "Number of crimes", fill = guide_legend(title = "Neighborhood")) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+The least number of crimes happen on Tuesday and Thursday. Downtown has the highest number of crimes an peaks on Saturday at the different neighborhoods. Crime distributions is consistent for Old Fourth Ward, West End, North Buck head and Vine City. 
+
+
+```{r}
+topCrimes_1 <- topCrimes %>% group_by(`UC2_Literal`, hour) %>% 
+  summarise(total = n())
+ggplot(aes(x = hour, y = total), data = topCrimes_1) +
+  geom_point(colour="blue", size=1) +
+  geom_smooth(method="loess") +
+  xlab('Military time') +
+  ylab('Number of Crimes') +
+  ggtitle('Top Crimes during the Time of the Day') +
+  facet_wrap(~`UC2_Literal`)
+```
+Larcency from vehicle peaks after 8:00 and it is at it's lowest between 5-6 am. Larcency non-vehicle peaked around 3 pm and auto theft has a steady increase and peaks though 8pm to midnight. The average number of crimes at the pack for Larceny from vehicle is around 240. 
+
+
+###We will now plot a location map with the Crimes of Atlanta with 2d density.
+
+```{r}
+library(maps)
+library(ggmap)
+topCrimes$`UC2_Literal` <- factor(topCrimes$`UC2_Literal`, levels = c('LARCENY-FROM VEHICLE', "LARCENY-NON VEHICLE", "AUTO THEFT"))
+atlanta <- get_map('atlanta', zoom = 14) 
+atlantaMap <- ggmap(atlanta, extent = 'device', legend = 'topleft')
+atlantaMap + stat_density2d(aes(x = lon, y = lat, 
+  fill = ..level.. , alpha = ..level..),size = 2, bins = 4, 
+  data = topCrimes, geom = 'polygon') + 
+  scale_fill_gradient('Crime\nDensity') +
+  scale_alpha(range = c(.4, .75), guide = "none") +
+  guides(fill = guide_colorbar(barwidth = 1, barheight = 8))
+```
+
+The base of the location map is from Google maps and using the lat and long column and the top Crimes  column. The most Crime Density is at the Peach Tree Center and Hotel District which is part of the Downtown area of Atlanta, Georgia. 
+
+In conclusion, the most crimes happen in Down Town and Midtown and the top Crimes are Larceny from Vehicle, Larceny Non Vehicle and Auto Theft. The number of crimes are generally at the lower side of the scale on major holidays. The number of crimes go at its peak around 8pm to midnight and is at it's lowest around 6am. The location map is a good visual to show how the crime distribution is in Atlanta and shows that the downtown area of Atlanta has the highest number of crimes.
